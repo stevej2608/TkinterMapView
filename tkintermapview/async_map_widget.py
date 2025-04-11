@@ -1,6 +1,7 @@
 # import requests
 import aiohttp
 import math
+import logging
 # import threading
 import tkinter
 import tkinter.ttk as ttk
@@ -25,6 +26,8 @@ from .canvas_button import CanvasButton
 from .canvas_path import CanvasPath
 from .canvas_polygon import CanvasPolygon
 
+
+log = logging.getLogger(__name__)
 
 class AsyncTkinterMapView(tkinter.Frame):
     """
@@ -183,12 +186,17 @@ class AsyncTkinterMapView(tkinter.Frame):
         self.pre_cache_thread = loop.create_task(self.pre_cache())
 
         # image loading in background threads
+
         self.image_load_queue_tasks: List[tuple] = []  # task: ((zoom, x, y), canvas_tile_object)
         self.image_load_queue_results: List[tuple] = []  # result: ((zoom, x, y), canvas_tile_object, photo_image)
+
         self.after(10, self.update_canvas_tile_images)
+
+
         self.image_load_thread_pool: List[asyncio.Task] = []
 
         # add background threads which load tile images from self.image_load_queue_tasks
+
         for i in range(25):
             # image_load_thread = threading.Thread(daemon=True, target=self.load_images_background)
             image_load_thread = loop.create_task(self.load_images_background())
@@ -292,6 +300,8 @@ class AsyncTkinterMapView(tkinter.Frame):
         self.overlay_tile_server = overlay_server
 
     def set_tile_server(self, tile_server: str, tile_size: int = 256, max_zoom: int = 19):
+        """ Set the tile server and tile size."""
+
         self.image_load_queue_tasks = []
         self.max_zoom = max_zoom
         self.tile_size = tile_size
@@ -303,10 +313,10 @@ class AsyncTkinterMapView(tkinter.Frame):
         self.draw_initial_array()
 
     def get_position(self) -> tuple:
-        """ returns current middle position of map widget in decimal coordinates """
+        """ Returns current middle position of map widget in decimal coordinates """
 
-        return osm_to_decimal((self.lower_right_tile_pos[0] + self.upper_left_tile_pos[0]) / 2,
-                              (self.lower_right_tile_pos[1] + self.upper_left_tile_pos[1]) / 2,
+        return osm_to_decimal((self.lower_right_tile_pos[0] + self.upper_left_tile_pos[0]) / 2, # mid X
+                              (self.lower_right_tile_pos[1] + self.upper_left_tile_pos[1]) / 2, # mid Y
                               round(self.zoom))
 
     def fit_bounding_box(self, position_top_left: Tuple[float, float], position_bottom_right: Tuple[float, float]):
@@ -470,6 +480,10 @@ class AsyncTkinterMapView(tkinter.Frame):
             db_cursor = None
 
         while self.running:
+
+            log.info(f"pre_cache: {self.pre_cache_position} radius: {radius} zoom: {zoom}")
+
+
             if last_pre_cache_position != self.pre_cache_position:
                 last_pre_cache_position = self.pre_cache_position
                 zoom = round(self.zoom)
@@ -510,6 +524,8 @@ class AsyncTkinterMapView(tkinter.Frame):
                     del self.tile_image_cache[key]
 
     async def request_image(self, zoom: int, x: int, y: int, db_cursor=None) -> ImageTk.PhotoImage:
+        """ STJ request abd return image from tile server or database. Return blank 
+        image if tile does not exist """
 
         # if database is available check first if tile is in database, if not try to use server
         if db_cursor is not None:
@@ -540,6 +556,9 @@ class AsyncTkinterMapView(tkinter.Frame):
         # try to get the tile from the server
         try:
             url = self.tile_server.replace("{x}", str(x)).replace("{y}", str(y)).replace("{z}", str(zoom))
+
+            log.info(f"request_image: {url}")
+
             # image = Image.open(requests.get(url, stream=True, headers={"User-Agent": "TkinterMapView"}).raw)
             headers = {"User-Agent": "TkinterMapView"}
             async with aiohttp.ClientSession() as session:
@@ -589,6 +608,15 @@ class AsyncTkinterMapView(tkinter.Frame):
             return self.tile_image_cache[f"{zoom}{x}{y}"]
 
     async def load_images_background(self):
+
+        # Several load_images_background threads are created by __init__() to load images in 
+        # the background. Each thread loops and checks if there are tasks in the queue
+
+        # Input: image_load_queue_tasks: [((zoom, x, y), corresponding canvas tile object), ... ]
+        # Output: image_load_queue_results: [((zoom, x, y), corresponding canvas tile object, tile image), ... ]
+        # if database is available, use it to load images   
+
+
         if self.database_path is not None:
             db_connection = sqlite3.connect(self.database_path)
             db_cursor = db_connection.cursor()
@@ -596,15 +624,25 @@ class AsyncTkinterMapView(tkinter.Frame):
             db_cursor = None
 
         while self.running:
+
             if len(self.image_load_queue_tasks) > 0:
+
+                log.info(f"load_images_background: {len(self.image_load_queue_tasks)} tasks")
+
                 # task queue structure: [((zoom, x, y), corresponding canvas tile object), ... ]
                 task = self.image_load_queue_tasks.pop()
+
+                # Unpack the tuple
 
                 zoom = task[0][0]
                 x, y = task[0][1], task[0][2]
                 canvas_tile = task[1]
 
+                # Attempt to get the tile image from the cache
+                # If the image is not in the cache, request it from the server or database
+
                 image = self.get_tile_image_from_cache(zoom, x, y)
+
                 if image is False:
                     image = await self.request_image(zoom, x, y, db_cursor=db_cursor)
                     if image is None:
@@ -612,6 +650,7 @@ class AsyncTkinterMapView(tkinter.Frame):
                         continue
 
                 # result queue structure: [((zoom, x, y), corresponding canvas tile object, tile image), ... ]
+
                 self.image_load_queue_results.append(((zoom, x, y), canvas_tile, image))
 
             else:
@@ -619,20 +658,36 @@ class AsyncTkinterMapView(tkinter.Frame):
 
     def update_canvas_tile_images(self):
 
+        # This function is called every 10ms to update the canvas tile images. The
+        # images are loaded in the background by load_images_background() and added to the 
+        # image_load_queue_results.
+
+        # This function is called from the main thread to update the canvas tile images
+        # because tkinter can only be updated from the main thread.
+
+        # Input: image_load_queue_results: [((zoom, x, y), corresponding canvas tile object, tile image), ... ]
+        # Output: canvas_tile_array: [canvas_tile_object, ... ]
+
         while len(self.image_load_queue_results) > 0 and self.running:
+
             # result queue structure: [((zoom, x, y), corresponding canvas tile object, tile image), ... ]
+
             result = self.image_load_queue_results.pop(0)
+
+            # Unpack the tuple
 
             zoom, _, _ = result[0][0], result[0][1], result[0][2]
             canvas_tile = result[1]
             image = result[2]
 
             # check if zoom level of result is still up to date, otherwise don't update image
+
             if zoom == round(self.zoom):
                 canvas_tile.set_image(image)
 
         # This function calls itself every 10 ms with tk.after() so that the image updates come
-        # from the main GUI thread, because tkinter can only be updated from the main thread.
+        # from the main GUI thread, because tkinter can only be updated from the main thread
+
         if self.running:
             self.after(10, self.update_canvas_tile_images)
 
@@ -647,6 +702,8 @@ class AsyncTkinterMapView(tkinter.Frame):
                 self.image_load_queue_tasks.append(((round(self.zoom), *tile_name_position), canvas_tile))
             else:
                 canvas_tile = CanvasTile(self, image, tile_name_position) #type: ignore
+
+            log.info(f"insert row {insert} tile {tile_name_position} image {image}")
 
             canvas_tile.draw()
 
@@ -666,6 +723,8 @@ class AsyncTkinterMapView(tkinter.Frame):
             else:
                 # image is already in cache
                 canvas_tile = CanvasTile(self, image, tile_name_position) #type: ignore
+
+            log.info(f"insert column {insert} tile {tile_name_position} image {image}")
 
             canvas_tile.draw()
 

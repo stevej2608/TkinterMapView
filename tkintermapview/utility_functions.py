@@ -14,7 +14,10 @@ def decimal_to_osm(lat_deg: float, lon_deg: float, zoom: int) -> tuple:
 
 
 def osm_to_decimal(tile_x: Union[int, float], tile_y: Union[int, float], zoom: int) -> tuple:
-    """ converts internal OSM coordinates to decimal coordinates """
+    """ Converts internal OSM coordinates to decimal coordinates """
+
+    # Web Mercator projection is used by OSM and most other map services
+    # https://en.wikipedia.org/wiki/Web_Mercator_projection
 
     n = 2.0 ** zoom
     lon_deg = tile_x / n * 360.0 - 180.0
