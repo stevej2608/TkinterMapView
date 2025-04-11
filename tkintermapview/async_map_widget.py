@@ -481,8 +481,7 @@ class AsyncTkinterMapView(tkinter.Frame):
 
         while self.running:
 
-            log.info(f"pre_cache: {self.pre_cache_position} radius: {radius} zoom: {zoom}")
-
+            # log.info(f"pre_cache: {self.pre_cache_position} radius: {radius} zoom: {zoom}")
 
             if last_pre_cache_position != self.pre_cache_position:
                 last_pre_cache_position = self.pre_cache_position
@@ -523,6 +522,21 @@ class AsyncTkinterMapView(tkinter.Frame):
                 for key in keys_to_delete:
                     del self.tile_image_cache[key]
 
+
+    async def request_image_from_server(self, zoom: int, x: int, y: int) -> bytes:
+        url = self.tile_server.replace("{x}", str(x)).replace("{y}", str(y)).replace("{z}", str(zoom))
+
+        log.info(f"request_image: {url}")
+
+        # image = Image.open(requests.get(url, stream=True, headers={"User-Agent": "TkinterMapView"}).raw)
+        headers = {"User-Agent": "TkinterMapView"}
+        async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    response.raise_for_status()  # Raise an error for HTTP status codes >= 400
+                    raw_data = await response.read()  # Read the raw response data
+                    return raw_data
+
+
     async def request_image(self, zoom: int, x: int, y: int, db_cursor=None) -> ImageTk.PhotoImage:
         """ STJ request abd return image from tile server or database. Return blank 
         image if tile does not exist """
@@ -555,17 +569,9 @@ class AsyncTkinterMapView(tkinter.Frame):
 
         # try to get the tile from the server
         try:
-            url = self.tile_server.replace("{x}", str(x)).replace("{y}", str(y)).replace("{z}", str(zoom))
 
-            log.info(f"request_image: {url}")
-
-            # image = Image.open(requests.get(url, stream=True, headers={"User-Agent": "TkinterMapView"}).raw)
-            headers = {"User-Agent": "TkinterMapView"}
-            async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers) as response:
-                        response.raise_for_status()  # Raise an error for HTTP status codes >= 400
-                        raw_data = await response.read()  # Read the raw response data
-                        image = Image.open(BytesIO(raw_data))  # Create a PIL image from the raw data
+            raw_data = await self.request_image_from_server(zoom, x, y)
+            image = Image.open(BytesIO(raw_data))
 
             if self.overlay_tile_server is not None:
                 url = self.overlay_tile_server.replace("{x}", str(x)).replace("{y}", str(y)).replace("{z}", str(zoom))
