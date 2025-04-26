@@ -526,7 +526,7 @@ class AsyncTkinterMapView(tkinter.Frame):
     async def request_image_from_server(self, zoom: int, x: int, y: int) -> bytes:
         url = self.tile_server.replace("{x}", str(x)).replace("{y}", str(y)).replace("{z}", str(zoom))
 
-        log.info(f"request_image: {url}")
+        # log.info(f"request_image: {url}")
 
         # image = Image.open(requests.get(url, stream=True, headers={"User-Agent": "TkinterMapView"}).raw)
         headers = {"User-Agent": "TkinterMapView"}
@@ -633,7 +633,7 @@ class AsyncTkinterMapView(tkinter.Frame):
 
             if len(self.image_load_queue_tasks) > 0:
 
-                log.info(f"load_images_background: {len(self.image_load_queue_tasks)} tasks")
+                # log.info(f"load_images_background: {len(self.image_load_queue_tasks)} tasks")
 
                 # task queue structure: [((zoom, x, y), corresponding canvas tile object), ... ]
                 task = self.image_load_queue_tasks.pop()
@@ -709,7 +709,7 @@ class AsyncTkinterMapView(tkinter.Frame):
             else:
                 canvas_tile = CanvasTile(self, image, tile_name_position) #type: ignore
 
-            log.info(f"insert row {insert} tile {tile_name_position} image {image}")
+            # log.info(f"insert row {insert} tile {tile_name_position} image {image}")
 
             canvas_tile.draw()
 
@@ -730,7 +730,7 @@ class AsyncTkinterMapView(tkinter.Frame):
                 # image is already in cache
                 canvas_tile = CanvasTile(self, image, tile_name_position) #type: ignore
 
-            log.info(f"insert column {insert} tile {tile_name_position} image {image}")
+            # log.info(f"insert column {insert} tile {tile_name_position} image {image}")
 
             canvas_tile.draw()
 
